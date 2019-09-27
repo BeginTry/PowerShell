@@ -39,6 +39,10 @@
         Version:        1.0
         Author:         Dave Mason
         Creation Date:  2019/09/27
+        
+        History:
+		YYYY/MM/DD	    Author
+			Notes...
 #>
 
 <#
@@ -144,6 +148,32 @@ function Get-SortedPrecedenceConstraints()
     return $ret
 }
 
+function Get-TaskType()
+{
+    [OutputType([string])]
+    Param (
+        [parameter(Mandatory=$true)]
+        [Microsoft.SqlServer.Dts.Runtime.EventsProvider]
+        $container
+    )
+
+    [string]$ret = $container.GetType().Name
+
+    if ([string]::Compare($ret, "TaskHost", $true) -eq 0)
+    {
+        $ret = ([Microsoft.SqlServer.Dts.Runtime.TaskHost]$container).InnerObject.GetType().ToString()
+        $ret = $ret.Split('.')[$ret.Split('.').Length - 1]
+
+        if([string]::Compare($ret, "__ComObject", $true) -eq 0)
+        {
+            #This seems to happen for Data Flow Tasks. 
+            $ret = $container.GetType().Name
+        }
+    }
+
+    return $ret
+}
+
 
 #region Create/reset DataTable, add columns.
 [System.Data.DataTable]$SsisMetaData = [System.Data.DataTable]::new()
@@ -203,6 +233,7 @@ foreach ($cat in $intSvcs.Catalogs)
                         [System.Collections.Generic.List[string]]$constrainedExeId = [System.Collections.Generic.List[string]]::new()
                         [System.Collections.Generic.List[Microsoft.SqlServer.Dts.Runtime.PrecedenceConstraint]]$precedenceConstraints = `
                             Get-SortedPrecedenceConstraints($pkg.PrecedenceConstraints);
+                        [string]$TaskType = $null;
 
                         #region Iterate through the PrecedentConstraint objects.
                         # Find the executables that are part of precedent constraints.
@@ -213,14 +244,16 @@ foreach ($cat in $intSvcs.Catalogs)
                             # the .Name and .Description property values.
                             [Microsoft.SqlServer.Dts.Runtime.EventsProvider]$container = `
                                 [Microsoft.SqlServer.Dts.Runtime.EventsProvider]$precedenceConstraints[0].PrecedenceExecutable
+                            $TaskType = Get-TaskType($container)
                                             
-                            Add-MetaDataTableRow $cat.Name $folder.Name $proj.Name $pkgInfo.Name $container.GetType().Name $container.Name "1" $container.Description
+                            Add-MetaDataTableRow $cat.Name $folder.Name $proj.Name $pkgInfo.Name $TaskType $container.Name "1" $container.Description
                             $constrainedExeId.Add($container.ID)
 
                             for ([int]$i = 0; $i -lt $precedenceConstraints.Count; $i++)
                             {
                                 $container = [Microsoft.SqlServer.Dts.Runtime.EventsProvider]$precedenceConstraints[$i].ConstrainedExecutable
-                                Add-MetaDataTableRow $cat.Name $folder.Name $proj.Name $pkgInfo.Name $container.GetType().Name $container.Name ($i+2).ToString() $container.Description
+                                $TaskType = Get-TaskType($container)
+                                Add-MetaDataTableRow $cat.Name $folder.Name $proj.Name $pkgInfo.Name $TaskType $container.Name ($i+2).ToString() $container.Description
                                 $constrainedExeId.Add($container.ID)
                             }
                         }
@@ -235,7 +268,10 @@ foreach ($cat in $intSvcs.Catalogs)
 
                             if ( -not $constrainedExeId.Contains($container.ID))
                             {
-                                Add-MetaDataTableRow $cat.Name $folder.Name $proj.Name $pkgInfo.Name $container.GetType().Name $container.Name "" $container.Description
+                                $TaskType = Get-TaskType($container)
+                                Add-MetaDataTableRow $cat.Name $folder.Name $proj.Name $pkgInfo.Name $TaskType $container.Name "" $container.Description
+
+                                
                             }
                         }
                         #endregion
